@@ -1,0 +1,11 @@
+flask
+flask-socketio
+eventlet
+pandas
+numpy
+scikit-learn
+tensorflow
+matplotlib
+scipy
+joblib
+wfdb
