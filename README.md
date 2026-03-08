@@ -1,6 +1,9 @@
 # MediNet Hospital Monitoring Network
 
-IoT-based ICU monitoring system that collects and analyzes patient vital signs using machine learning and wireless networking.
+IoT-based ICU monitoring system that collects, processes and analyzes patient vital signs using machine learning and real-time dashboards.
+
+Dataset: PhysioNet eICU Collaborative Research Database  
+Records: 101,045 ICU observations from 139 patients
 
 ## Features
 - Real-time monitoring of Heart Rate, SpO2 and Temperature
