@@ -30,11 +30,11 @@ def load_eicu(path='data/vitalPeriodic.csv.gz'):
     return df
 
 def load_csv():
-    df = pd.read_csv('data/icu_data.csv')
+    df = pd.read_csv('patient_data.csv')
     return df.reset_index(drop=True)
 
 def get_patient_ids():
-    df = pd.read_csv('data/icu_data.csv', usecols=['patient_id'])
+    df = pd.read_csv('patient_data.csv', usecols=['patient_id'])
     return df['patient_id'].unique().tolist()
 
 def load_patient(patient_id):
