@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MediNet — Patient Monitoring</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #04080f;
+  --surface: #080f1a;
+  --panel:   #0b1524;
+  --border:  #112236;
+  --border2: #1a3354;
+  --accent:  #00d4ff;
+  --accent2: #00ff88;
+  --warn:    #ff6b35;
+  --danger:  #ff2d55;
+  --muted:   #3a5a7a;
+  --text:    #c8dff0;
+  --text2:   #6a8fac;
+  --mono:    'IBM Plex Mono', monospace;
+  --sans:    'DM Sans', sans-serif;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width:220px; min-width:220px;
+  background:var(--surface);
+  border-right:1px solid var(--border);
+  display:flex; flex-direction:column;
+  z-index:10;
+}
+
+.sidebar-logo {
+  padding:28px 24px 20px;
+  border-bottom:1px solid var(--border);
+}
+
+.logo-mark { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+
+.logo-icon {
+  width:32px; height:32px;
+  background:linear-gradient(135deg,#00d4ff22,#00ff8822);
+  border:1px solid var(--accent);
+  border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px;
+}
+
+.logo-name {
+  font-family:var(--mono); font-size:1rem;
+  font-weight:600; color:var(--accent); letter-spacing:2px;
+}
+
+.logo-sub {
+  font-size:.68rem; color:var(--muted);
+  letter-spacing:1px; padding-left:42px;
+}
+
+.sidebar-section {
+  padding:20px 16px 8px;
+  font-size:.6rem; color:var(--muted);
+  letter-spacing:2px; font-family:var(--mono);
+}
+
+.nav-item {
+  display:flex; align-items:center; gap:12px;
+  padding:11px 20px; margin:2px 8px;
+  border-radius:8px; cursor:pointer;
+  font-size:.82rem; color:var(--text2);
+  transition:all .2s;
+  border:1px solid transparent;
+  font-family:var(--sans); font-weight:500;
+}
+
+.nav-item:hover { background:var(--panel); color:var(--text); border-color:var(--border); }
+.nav-item.active { background:linear-gradient(135deg,#00d4ff12,#00ff8808); color:var(--accent); border-color:var(--border2); }
+.nav-item .nav-icon { font-size:15px; width:18px; text-align:center; }
+
+.nav-dot {
+  width:6px; height:6px; border-radius:50%;
+  background:var(--accent2); margin-left:auto;
+  animation:blink 2s infinite;
+}
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+.sidebar-footer {
+  margin-top:auto; padding:16px 20px;
+  border-top:1px solid var(--border);
+  font-size:.68rem; color:var(--muted); font-family:var(--mono);
+}
+
+.status-dot {
+  display:inline-block; width:6px; height:6px;
+  border-radius:50%; background:var(--accent2);
+  margin-right:6px; animation:blink 2s infinite;
+}
+
+.sep { height:1px; background:var(--border); margin:0 16px 8px; }
+
+/* ── MAIN ── */
+.main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+.topbar {
+  height:56px; background:var(--surface);
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center;
+  padding:0 28px; gap:20px; flex-shrink:0;
+}
+
+.topbar-title { font-family:var(--mono); font-size:.82rem; color:var(--text2); letter-spacing:1px; }
+.topbar-title span { color:var(--accent); }
+.topbar-time { margin-left:auto; font-family:var(--mono); font-size:.78rem; color:var(--muted); }
+
+.alert-badge {
+  background:#ff2d5520; border:1px solid #ff2d5550;
+  color:var(--danger); font-size:.68rem; font-family:var(--mono);
+  padding:4px 10px; border-radius:4px; display:none;
+}
+
+.content { flex:1; overflow-y:auto; padding:24px 28px; }
+.content::-webkit-scrollbar { width:4px; }
+.content::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+/* ── TABS ── */
+.tab-content { display:none; }
+.tab-content.active { display:block; animation:fadeIn .25s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+/* ── VITALS CARDS ── */
+.vitals-grid {
+  display:grid; grid-template-columns:repeat(6,1fr);
+  gap:12px; margin-bottom:20px;
+}
+
+.vital-card {
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:10px; padding:16px 18px;
+  position:relative; overflow:hidden; transition:border-color .3s;
+}
+
+.vital-card::before {
+  content:''; position:absolute;
+  top:0; left:0; right:0; height:2px;
+  background:var(--accent); opacity:0; transition:opacity .3s;
+}
+
+.vital-card.active::before { opacity:1; }
+.vital-card.active { border-color:var(--border2); }
+.vital-card.critical { border-color:#ff2d5540; }
+.vital-card.critical::before { background:var(--danger); opacity:1; }
+
+.vital-label { font-size:.6rem; color:var(--muted); letter-spacing:2px; font-family:var(--mono); margin-bottom:10px; }
+.vital-value { font-size:1.7rem; font-family:var(--mono); font-weight:600; color:var(--accent); line-height:1; }
+.vital-value.normal   { color:var(--accent2); }
+.vital-value.critical { color:var(--danger); animation:pulse .8s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.vital-unit { font-size:.62rem; color:var(--muted); font-family:var(--mono); margin-top:4px; }
+
+/* ── CHART PANELS ── */
+.chart-panel {
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:10px; padding:20px;
+}
+
+.charts-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+.chart-header {
+  display:flex; align-items:center;
+  justify-content:space-between; margin-bottom:16px;
+}
+
+.chart-title { font-size:.65rem; color:var(--muted); letter-spacing:2px; font-family:var(--mono); }
+
+.chart-badge {
+  font-size:.6rem; font-family:var(--mono);
+  padding:3px 8px; border-radius:3px;
+  background:#00d4ff15; color:var(--accent);
+  border:1px solid #00d4ff30;
+}
+
+/* ECG glow */
+#hrChart   { filter:drop-shadow(0 0 5px #00d4ff80); }
+#spo2Chart { filter:drop-shadow(0 0 5px #00ff8880); }
+#tempChart { filter:drop-shadow(0 0 5px #ff6b3580); }
+canvas { background:transparent !important; }
+
+/* ── ALERT LOG ── */
+.alert-panel {
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:10px; padding:20px; margin-top:16px;
+}
+
+.alert-panel-header { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+.alert-panel-title { font-size:.65rem; color:var(--muted); letter-spacing:2px; font-family:var(--mono); }
+
+.alert-count {
+  background:#ff2d5520; border:1px solid #ff2d5540;
+  color:var(--danger); font-size:.6rem; font-family:var(--mono);
+  padding:2px 8px; border-radius:3px;
+}
+
+.alert-scroll { max-height:140px; overflow-y:auto; }
+.alert-scroll::-webkit-scrollbar { width:3px; }
+.alert-scroll::-webkit-scrollbar-thumb { background:var(--border2); }
+
+.alert-row {
+  display:flex; align-items:flex-start; gap:12px;
+  padding:8px 0; border-bottom:1px solid var(--border);
+  font-size:.72rem; font-family:var(--mono);
+}
+
+.alert-row:last-child { border-bottom:none; }
+.alert-indicator {
+  width:6px; height:6px; border-radius:50%;
+  background:var(--danger); margin-top:5px; flex-shrink:0;
+  animation:blink 1.5s infinite;
+}
+
+.alert-time { color:var(--muted); flex-shrink:0; }
+.alert-msg  { color:#ff8099; }
+.no-alerts  { color:var(--muted); font-size:.72rem; font-family:var(--mono); }
+
+/* ── SLEEP TAB ── */
+.sleep-search { display:flex; gap:12px; margin-bottom:24px; align-items:center; }
+.sleep-search label { font-size:.65rem; color:var(--muted); letter-spacing:2px; font-family:var(--mono); }
+
+.input-field {
+  background:var(--panel); border:1px solid var(--border2);
+  color:var(--accent); padding:10px 16px; border-radius:8px;
+  font-family:var(--mono); font-size:.82rem; outline:none;
+  width:200px; transition:border-color .2s;
+}
+
+.input-field:focus { border-color:var(--accent); }
+
+.btn-primary {
+  background:linear-gradient(135deg,#00d4ff18,#00ff8812);
+  border:1px solid var(--accent); color:var(--accent);
+  padding:10px 22px; border-radius:8px; font-family:var(--mono);
+  font-size:.78rem; cursor:pointer; letter-spacing:1px; transition:all .2s;
+}
+
+.btn-primary:hover { background:linear-gradient(135deg,#00d4ff28,#00ff8820); box-shadow:0 0 20px #00d4ff20; }
+
+.sleep-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+
+.stat-card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; }
+.stat-label { font-size:.6rem; color:var(--muted); letter-spacing:2px; font-family:var(--mono); margin-bottom:10px; }
+.stat-value { font-size:2rem; font-family:var(--mono); font-weight:600; color:var(--accent); }
+.stat-sub   { font-size:.65rem; color:var(--muted); margin-top:4px; }
+
+/* ── MONITOR LINK BANNER ── */
+.monitor-link {
+  display:none; align-items:center; gap:16px;
+  background:linear-gradient(135deg,#00d4ff08,#00ff8808);
+  border:1px solid var(--border2);
+  border-radius:10px; padding:16px 20px; margin-bottom:20px;
+}
+
+.monitor-link-info { flex:1; }
+.monitor-link-tag  { font-size:.6rem; color:var(--muted); letter-spacing:2px; font-family:var(--mono); margin-bottom:4px; }
+.monitor-link-pid  { font-size:.9rem; color:var(--accent); font-family:var(--mono); font-weight:600; }
+
+.btn-secondary {
+  background:transparent;
+  border:1px solid var(--muted); color:var(--muted);
+  padding:8px 16px; border-radius:8px; font-family:var(--mono);
+  font-size:.72rem; cursor:pointer; transition:all .2s;
+}
+
+.btn-secondary:hover { border-color:var(--danger); color:var(--danger); }
+
+/* ── ANALYTICS TAB ── */
+.graphs-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.graph-panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px; }
+.graph-img   { width:100%; border-radius:6px; display:block; }
+
+/* ── PATIENTS TAB ── */
+.patient-table { width:100%; border-collapse:collapse; font-size:.78rem; }
+.patient-table th {
+  text-align:left; padding:10px 16px;
+  font-size:.6rem; letter-spacing:2px; color:var(--muted);
+  font-family:var(--mono); border-bottom:1px solid var(--border); font-weight:400;
+}
+.patient-table td { padding:12px 16px; border-bottom:1px solid var(--border); font-family:var(--mono); color:var(--text2); }
+.patient-table tr:hover td { background:var(--surface); color:var(--text); }
+.pid-link { color:var(--text); cursor:pointer; transition:color .2s; }
+.pid-link:hover { color:var(--accent); }
+
+.tag { font-size:.6rem; padding:3px 8px; border-radius:3px; font-family:var(--mono); }
+.tag-normal   { background:#00ff8815; color:var(--accent2); border:1px solid #00ff8830; }
+.tag-critical { background:#ff2d5515; color:var(--danger);  border:1px solid #ff2d5530; }
+
+/* ── PAGE HEADER ── */
+.page-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
+.page-title  { font-size:1.1rem; font-weight:600; color:var(--text); }
+.page-sub    { font-size:.72rem; color:var(--muted); font-family:var(--mono); margin-top:2px; }
+
+.live-pill {
+  display:flex; align-items:center; gap:6px;
+  background:var(--panel); border:1px solid var(--border2);
+  border-radius:20px; padding:6px 14px;
+  font-size:.68rem; font-family:var(--mono); color:var(--accent2);
+}
+
+/* scanline */
+body::after {
+  content:''; position:fixed; top:0; left:0; right:0; bottom:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,.008) 2px,rgba(0,212,255,.008) 4px);
+  pointer-events:none; z-index:999;
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <div class="logo-icon">♥</div>
+      <div class="logo-name">MEDINET</div>
+    </div>
+    <div class="logo-sub">ICU MONITORING v2.0</div>
+  </div>
+
+  <div class="sidebar-section">MONITORING</div>
+  <div class="nav-item active" onclick="switchTab('live', this)">
+    <span class="nav-icon">◉</span> Live Monitor
+    <span class="nav-dot"></span>
+  </div>
+  <div class="nav-item" onclick="switchTab('sleep', this)">
+    <span class="nav-icon">◐</span> Sleep Analysis
+  </div>
+
+  <div class="sep"></div>
+  <div class="sidebar-section">DATA</div>
+  <div class="nav-item" onclick="switchTab('patients', this)">
+    <span class="nav-icon">▦</span> Patients
+  </div>
+  <div class="nav-item" onclick="switchTab('analytics', this)">
+    <span class="nav-icon">◈</span> Analytics
+  </div>
+
+  <div class="sidebar-footer">
+    <div><span class="status-dot"></span>SYSTEM ONLINE</div>
+    <div style="margin-top:4px;color:#1e3a5f">eICU · 101,045 records</div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title">HOSPITAL PATIENT MONITORING / <span id="topbarSection">LIVE MONITOR</span></div>
+    <div class="alert-badge" id="alertBadge">⚠ CRITICAL ALERT</div>
+    <div class="topbar-time" id="clock">--:--:--</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ══ TAB 1: LIVE MONITOR ══ -->
+    <div class="tab-content active" id="tab-live">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Live Patient Monitor</div>
+          <div class="page-sub" id="liveSubtitle">REAL-TIME · 1 Hz SAMPLING · eICU DATASET · ALL PATIENTS</div>
+        </div>
+        <div class="live-pill"><span class="nav-dot"></span> STREAMING</div>
+      </div>
+
+      <div class="vitals-grid">
+        <div class="vital-card active" id="card-hr">
+          <div class="vital-label">HEART RATE</div>
+          <div class="vital-value" id="hr">--</div>
+          <div class="vital-unit">BPM</div>
+        </div>
+        <div class="vital-card" id="card-spo2">
+          <div class="vital-label">SpO₂</div>
+          <div class="vital-value" id="spo2">--</div>
+          <div class="vital-unit">PERCENT</div>
+        </div>
+        <div class="vital-card" id="card-temp">
+          <div class="vital-label">TEMPERATURE</div>
+          <div class="vital-value" id="temp">--</div>
+          <div class="vital-unit">CELSIUS</div>
+        </div>
+        <div class="vital-card" id="card-status">
+          <div class="vital-label">STATUS</div>
+          <div class="vital-value" id="status">--</div>
+          <div class="vital-unit">CLASSIFICATION</div>
+        </div>
+        <div class="vital-card" id="card-prob">
+          <div class="vital-label">CRIT PROBABILITY</div>
+          <div class="vital-value" id="prob">--</div>
+          <div class="vital-unit">LOGISTIC REG</div>
+        </div>
+        <div class="vital-card" id="card-next">
+          <div class="vital-label">PREDICTED HR</div>
+          <div class="vital-value" id="nexthr">--</div>
+          <div class="vital-unit">MLP · NEXT 1s</div>
+        </div>
+      </div>
+
+      <div class="chart-panel" style="margin-bottom:16px">
+        <div class="chart-header">
+          <div class="chart-title">HEART RATE — LIVE ECG SIGNAL + MOVING AVERAGE</div>
+          <div class="chart-badge">1 Hz</div>
+        </div>
+        <canvas id="hrChart" height="65"></canvas>
+      </div>
+
+      <div class="charts-row" style="margin-bottom:16px">
+        <div class="chart-panel">
+          <div class="chart-header">
+            <div class="chart-title">SpO₂ SATURATION</div>
+            <div class="chart-badge">OXYGEN</div>
+          </div>
+          <canvas id="spo2Chart" height="110"></canvas>
+        </div>
+        <div class="chart-panel">
+          <div class="chart-header">
+            <div class="chart-title">BODY TEMPERATURE</div>
+            <div class="chart-badge">THERMAL</div>
+          </div>
+          <canvas id="tempChart" height="110"></canvas>
+        </div>
+      </div>
+
+      <div class="alert-panel">
+        <div class="alert-panel-header">
+          <div class="alert-panel-title">CRITICAL ALERT LOG</div>
+          <div class="alert-count" id="alertCount">0 ALERTS</div>
+        </div>
+        <div class="alert-scroll" id="alertItems">
+          <div class="no-alerts">No alerts detected — patient stable</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ TAB 2: SLEEP ANALYSIS ══ -->
+    <div class="tab-content" id="tab-sleep">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Sleep Pattern Analysis</div>
+          <div class="page-sub">AUTOCORRELATION · HR VARIABILITY · PER-PATIENT</div>
+        </div>
+      </div>
+
+      <div class="sleep-search">
+        <label>PATIENT ID</label>
+        <input class="input-field" id="pidInput" type="number" placeholder="e.g. 151179"/>
+        <button class="btn-primary" onclick="loadSleep()">ANALYSE PATIENT</button>
+      </div>
+
+      <!-- Monitor Link Banner -->
+      <div class="monitor-link" id="monitorBanner">
+        <div class="monitor-link-info">
+          <div class="monitor-link-tag">LINKED TO LIVE MONITOR</div>
+          <div class="monitor-link-pid" id="monitorBannerPid">PATIENT --</div>
+        </div>
+        <button class="btn-primary" id="monitorLiveBtn">▶ MONITOR LIVE</button>
+        <button class="btn-secondary" id="monitorResetBtn">✕ RESET TO ALL</button>
+      </div>
+
+      <div class="sleep-stats" id="sleepStats" style="display:none">
+        <div class="stat-card">
+          <div class="stat-label">SLEEP TIME</div>
+          <div class="stat-value" id="sl-sleep" style="color:var(--accent)">--</div>
+          <div class="stat-sub">% of stay duration</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">AWAKE TIME</div>
+          <div class="stat-value" id="sl-awake" style="color:var(--warn)">--</div>
+          <div class="stat-sub">% of stay duration</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">AVG HR · SLEEP</div>
+          <div class="stat-value" id="sl-hr-sleep" style="color:var(--accent2)">--</div>
+          <div class="stat-sub">beats per minute</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">AVG HR · AWAKE</div>
+          <div class="stat-value" id="sl-hr-awake" style="color:var(--danger)">--</div>
+          <div class="stat-sub">beats per minute</div>
+        </div>
+      </div>
+
+      <div class="chart-panel" id="sleepChartPanel" style="display:none; margin-bottom:16px">
+        <div class="chart-header">
+          <div class="chart-title">HEART RATE WITH SLEEP WINDOWS HIGHLIGHTED</div>
+          <div class="chart-badge" id="sleepPatientBadge">PATIENT --</div>
+        </div>
+        <canvas id="sleepHrChart" height="70"></canvas>
+      </div>
+
+      <div class="chart-panel" id="acfChartPanel" style="display:none">
+        <div class="chart-header">
+          <div class="chart-title">AUTOCORRELATION — SLEEP PERIODICITY DETECTION</div>
+          <div class="chart-badge">ACF</div>
+        </div>
+        <canvas id="acfChart" height="80"></canvas>
+      </div>
+    </div>
+
+    <!-- ══ TAB 3: PATIENTS ══ -->
+    <div class="tab-content" id="tab-patients">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Patient Registry</div>
+          <div class="page-sub">eICU COHORT · ALL MONITORED PATIENTS</div>
+        </div>
+      </div>
+      <div class="chart-panel">
+        <table class="patient-table">
+          <thead>
+            <tr>
+              <th>PATIENT ID</th>
+              <th>RECORDS</th>
+              <th>AVG HR</th>
+              <th>AVG SpO₂</th>
+              <th>AVG TEMP</th>
+              <th>ANOMALY RATE</th>
+              <th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="patientTableBody">
+            <tr><td colspan="7" style="color:var(--muted);font-family:var(--mono)">Loading patients...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ TAB 4: ANALYTICS ══ -->
+    <div class="tab-content" id="tab-analytics">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Signal Analytics</div>
+          <div class="page-sub">GENERATED FROM eICU DATASET · STATIC ANALYSIS</div>
+        </div>
+      </div>
+      <div class="graphs-grid">
+        <div class="graph-panel">
+          <div class="chart-header"><div class="chart-title">HEART RATE + MOVING AVERAGE</div></div>
+          <img class="graph-img" src="/static/graphs/hr_trend.png" onerror="this.style.display='none'"/>
+        </div>
+        <div class="graph-panel">
+          <div class="chart-header"><div class="chart-title">ANOMALY DETECTION — ALL VITALS</div></div>
+          <img class="graph-img" src="/static/graphs/anomaly_detection.png" onerror="this.style.display='none'"/>
+        </div>
+        <div class="graph-panel">
+          <div class="chart-header"><div class="chart-title">AUTOCORRELATION — SLEEP PERIODICITY</div></div>
+          <img class="graph-img" src="/static/graphs/autocorrelation.png" onerror="this.style.display='none'"/>
+        </div>
+        <div class="graph-panel">
+          <div class="chart-header"><div class="chart-title">TEMPERATURE VARIATION</div></div>
+          <img class="graph-img" src="/static/graphs/temp_variation.png" onerror="this.style.display='none'"/>
+        </div>
+        <div class="graph-panel" style="grid-column:1/-1">
+          <div class="chart-header"><div class="chart-title">OXYGEN TREND ANALYSIS</div></div>
+          <img class="graph-img" src="/static/graphs/oxygen_trend.png" onerror="this.style.display='none'"/>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── CLOCK ──
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
+}, 1000);
+
+// ── TAB SWITCHING ──
+const tabTitles = {
+  live: 'LIVE MONITOR', sleep: 'SLEEP ANALYSIS',
+  patients: 'PATIENT REGISTRY', analytics: 'SIGNAL ANALYTICS'
+};
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  el.classList.add('active');
+  document.getElementById('topbarSection').textContent = tabTitles[name];
+  if (name === 'patients') loadPatients();
+}
+
+// ── CHART DEFAULTS ──
+const MAX = 60;
+const chartDefaults = {
+  animation: false,
+  scales: {
+    x: { display: false },
+    y: {
+      ticks: { color: '#3a5a7a', font: { family: 'IBM Plex Mono', size: 9 } },
+      grid: { color: '#0d2035', lineWidth: 1 },
+      border: { color: '#112236' }
+    }
+  },
+  plugins: {
+    legend: { labels: { color: '#6a8fac', font: { family: 'IBM Plex Mono', size: 10 }, boxWidth: 10 } }
+  },
+  elements: { line: { borderCapStyle: 'square' } }
+};
+
+const labels = [], hrD = [], maD = [], spo2D = [], tempD = [];
+
+const hrChart = new Chart(document.getElementById('hrChart'), {
+  type: 'line',
+  data: { labels, datasets: [
+    { label: 'HR (BPM)', data: hrD,
+      borderColor: '#00d4ff', tension: 0,
+      pointRadius: 0, borderWidth: 1.5, fill: false },
+    { label: 'Moving Avg', data: maD,
+      borderColor: '#ffd700', borderDash: [4,3],
+      tension: 0.3, pointRadius: 0, borderWidth: 1, fill: false },
+  ]},
+  options: chartDefaults
+});
+
+const spo2Chart = new Chart(document.getElementById('spo2Chart'), {
+  type: 'line',
+  data: { labels, datasets: [{
+    label: 'SpO₂ %', data: spo2D,
+    borderColor: '#00ff88',
+    backgroundColor: 'rgba(0,255,136,.06)',
+    fill: true, tension: 0, pointRadius: 0, borderWidth: 1.5
+  }]},
+  options: chartDefaults
+});
+
+const tempChart = new Chart(document.getElementById('tempChart'), {
+  type: 'line',
+  data: { labels, datasets: [{
+    label: 'Temp °C', data: tempD,
+    borderColor: '#ff6b35',
+    backgroundColor: 'rgba(255,107,53,.06)',
+    fill: true, tension: 0, pointRadius: 0, borderWidth: 1.5
+  }]},
+  options: chartDefaults
+});
+
+function push(arr, val) { arr.push(val); if (arr.length > MAX) arr.shift(); }
+
+// ── SOCKET ──
+let alertCount = 0;
+const socket = io();
+
+socket.on('vitals', d => {
+  const t = String(d.timestamp).split(' ')[1] || String(d.timestamp);
+
+  document.getElementById('hr').textContent     = d.heart_rate;
+  document.getElementById('spo2').textContent   = d.spo2;
+  document.getElementById('temp').textContent   = d.temperature;
+  document.getElementById('nexthr').textContent = d.next_hr[0];
+  document.getElementById('prob').textContent   = (d.crit_prob * 100).toFixed(1) + '%';
+
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = d.status;
+  statusEl.className = 'vital-value ' + d.status.toLowerCase();
+
+  const isCrit = d.status === 'Critical';
+  ['card-hr','card-spo2','card-temp','card-status','card-prob','card-next'].forEach(id => {
+    document.getElementById(id).classList.toggle('critical', isCrit);
+  });
+
+  document.getElementById('alertBadge').style.display = isCrit ? 'block' : 'none';
+
+  // Update subtitle with current patient
+  const pid = d.patient_id;
+  const subtitle = pid === 'ALL'
+    ? 'REAL-TIME · 1 Hz SAMPLING · eICU DATASET · ALL PATIENTS'
+    : `REAL-TIME · 1 Hz SAMPLING · eICU DATASET · PATIENT ${pid}`;
+  document.getElementById('liveSubtitle').textContent = subtitle;
+  document.getElementById('topbarSection').textContent =
+    pid === 'ALL' ? 'LIVE MONITOR' : `LIVE MONITOR · PATIENT ${pid}`;
+
+  push(labels, t);
+  push(hrD, d.heart_rate);
+  push(maD, d.ma_hr);
+  push(spo2D, d.spo2);
+  push(tempD, d.temperature);
+
+  hrChart.update();
+  spo2Chart.update();
+  tempChart.update();
+
+  if (isCrit) {
+    alertCount++;
+    document.getElementById('alertCount').textContent = alertCount + ' ALERT' + (alertCount > 1 ? 'S' : '');
+    const container = document.getElementById('alertItems');
+    if (container.querySelector('.no-alerts')) container.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'alert-row';
+    row.innerHTML = `
+      <div class="alert-indicator"></div>
+      <div class="alert-time">${t}</div>
+      <div class="alert-msg">⚠ ${d.reason.toUpperCase()} · HR:${d.heart_rate} SpO₂:${d.spo2} Temp:${d.temperature}</div>
+    `;
+    container.prepend(row);
+  }
+});
+
+// ── SLEEP ANALYSIS ──
+let sleepHrChart = null, acfChart = null;
+let activePid = null;
+
+async function loadSleep() {
+  const pid = document.getElementById('pidInput').value;
+  if (!pid) { alert('Enter a Patient ID first'); return; }
+
+  const btn = document.querySelector('.btn-primary');
+  btn.textContent = 'ANALYSING...';
+
+  try {
+    const res = await fetch('/sleep/' + pid);
+    const data = await res.json();
+
+    if (data.error) {
+      btn.textContent = 'ANALYSE PATIENT';
+      alert('Patient ' + pid + ' not found. Try one from the Patients tab.');
+      return;
+    }
+
+    activePid = pid;
+    const s = data.summary;
+    document.getElementById('sl-sleep').textContent    = s.sleep_pct + '%';
+    document.getElementById('sl-awake').textContent    = s.awake_pct + '%';
+    document.getElementById('sl-hr-sleep').textContent = s.avg_hr_sleep;
+    document.getElementById('sl-hr-awake').textContent = s.avg_hr_awake;
+
+    document.getElementById('sleepStats').style.display      = 'grid';
+    document.getElementById('sleepChartPanel').style.display = 'block';
+    document.getElementById('acfChartPanel').style.display   = 'block';
+    document.getElementById('sleepPatientBadge').textContent = 'PATIENT ' + pid;
+
+    // Show monitor banner
+    document.getElementById('monitorBanner').style.display   = 'flex';
+    document.getElementById('monitorBannerPid').textContent  = 'PATIENT ' + pid + ' · ' + data.record_count + ' RECORDS';
+    document.getElementById('monitorLiveBtn').textContent    = '▶ MONITOR LIVE';
+    document.getElementById('monitorLiveBtn').style.borderColor = 'var(--accent)';
+    document.getElementById('monitorLiveBtn').style.color       = 'var(--accent)';
+
+    const hrLabels = data.hr.map((_, i) => i);
+
+    if (sleepHrChart) sleepHrChart.destroy();
+    sleepHrChart = new Chart(document.getElementById('sleepHrChart'), {
+      type: 'line',
+      data: { labels: hrLabels, datasets: [
+        { label: 'Heart Rate', data: data.hr,
+          borderColor: '#00d4ff', tension: 0, pointRadius: 0, borderWidth: 1.5 },
+        { label: 'Sleep Window',
+          data: data.sleep_mask.map((s, i) => s ? data.hr[i] : null),
+          borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,.15)',
+          tension: 0, pointRadius: 0, borderWidth: 0, fill: true }
+      ]},
+      options: chartDefaults
+    });
+
+    if (acfChart) acfChart.destroy();
+    acfChart = new Chart(document.getElementById('acfChart'), {
+      type: 'bar',
+      data: { labels: data.acf.map((_, i) => i), datasets: [{
+        label: 'ACF',
+        data: data.acf,
+        backgroundColor: data.acf.map(v => v > 0.2 ? '#00d4ff50' : '#1a335460'),
+        borderColor:     data.acf.map(v => v > 0.2 ? '#00d4ff'   : '#1a3354'),
+        borderWidth: 1
+      }]},
+      options: chartDefaults
+    });
+
+  } catch(e) {
+    console.error('Sleep error:', e);
+    alert('Error loading patient ' + pid + '. Check console for details.');
+  }
+
+  btn.textContent = 'ANALYSE PATIENT';
+}
+
+// ── MONITOR LINK BUTTONS ──
+document.getElementById('monitorLiveBtn').addEventListener('click', async () => {
+  if (!activePid) return;
+  await fetch('/set_patient/' + activePid);
+  // Clear charts for fresh patient stream
+  labels.length=0; hrD.length=0; maD.length=0; spo2D.length=0; tempD.length=0;
+  hrChart.update(); spo2Chart.update(); tempChart.update();
+  document.getElementById('monitorLiveBtn').textContent    = '✅ NOW MONITORING';
+  document.getElementById('monitorLiveBtn').style.borderColor = 'var(--accent2)';
+  document.getElementById('monitorLiveBtn').style.color       = 'var(--accent2)';
+  // Switch to live tab
+  switchTab('live', document.querySelectorAll('.nav-item')[0]);
+});
+
+document.getElementById('monitorResetBtn').addEventListener('click', async () => {
+  await fetch('/set_patient/0');
+  labels.length=0; hrD.length=0; maD.length=0; spo2D.length=0; tempD.length=0;
+  hrChart.update(); spo2Chart.update(); tempChart.update();
+  document.getElementById('monitorLiveBtn').textContent    = '▶ MONITOR LIVE';
+  document.getElementById('monitorLiveBtn').style.borderColor = 'var(--accent)';
+  document.getElementById('monitorLiveBtn').style.color       = 'var(--accent)';
+  document.getElementById('monitorBannerPid').textContent  = 'RESET — Streaming all patients';
+});
+
+// ── PATIENTS TABLE ──
+async function loadPatients() {
+  const tbody = document.getElementById('patientTableBody');
+  if (tbody.dataset.loaded) return;
+  tbody.dataset.loaded = '1';
+
+  try {
+    const res = await fetch('/patient_stats');
+    const data = await res.json();
+
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">No patient data available</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(p => `
+      <tr>
+        <td><span class="pid-link" onclick="jumpToSleep(${p.id})">${p.id}</span></td>
+        <td>${p.count}</td>
+        <td>${p.avg_hr}</td>
+        <td>${p.avg_spo2}</td>
+        <td>${p.avg_temp}</td>
+        <td><span class="tag ${p.anomaly_rate > 10 ? 'tag-critical' : 'tag-normal'}">${p.anomaly_rate}%</span></td>
+        <td><span class="pid-link" onclick="jumpToSleep(${p.id})" style="color:var(--accent);font-size:.65rem">SLEEP ANALYSIS →</span></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Could not load patient data</td></tr>';
+  }
+}
+
+function jumpToSleep(pid) {
+  document.getElementById('pidInput').value = pid;
+  switchTab('sleep', document.querySelectorAll('.nav-item')[1]);
+  setTimeout(loadSleep, 100);
+}
+</script>
+</body>
+</html>
