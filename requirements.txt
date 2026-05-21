@@ -4,7 +4,6 @@ eventlet
 pandas
 numpy
 scikit-learn
-tensorflow
 matplotlib
 scipy
 joblib
